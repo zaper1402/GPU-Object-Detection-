@@ -41,9 +41,9 @@ echo ""
 ################################################################################
 echo "[Step 1/7] Loading modules..."
 module purge
-module load gcc/11.3.0
-module load cuda/11.5.0
-module load python-data/3.10
+module load gcc
+module load cuda
+module load python-data
 
 echo "Loaded modules:"
 module list
