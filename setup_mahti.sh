@@ -27,12 +27,12 @@ print_info() {
 # Step 1: Load required modules
 echo "[1/6] Loading required modules..."
 module purge
-module load gcc/11.3.0
-module load cuda/11.5.0
-module load python-data/3.10
+module load gcc
+module load cuda
+module load python-data
 
 if [ $? -eq 0 ]; then
-    print_success "Modules loaded: gcc/11.3.0, cuda/11.5.0, python-data/3.10"
+    print_success "Modules loaded: gcc, cuda, python-data"
 else
     print_error "Failed to load modules"
     exit 1
@@ -100,28 +100,6 @@ mkdir -p bin
 mkdir -p logs
 
 print_success "Project directories created"
-echo ""
-
-# Step 6: Generate sample templates and test images
-echo "[6/6] Generating sample data..."
-cd src
-
-if [ -f "generate_samples.py" ]; then
-    python generate_samples.py
-    if [ $? -eq 0 ]; then
-        print_success "Sample templates and test images generated"
-    else
-        print_error "Failed to generate samples"
-        cd ..
-        exit 1
-    fi
-else
-    print_error "generate_samples.py not found"
-    cd ..
-    exit 1
-fi
-
-cd ..
 echo ""
 
 # Final verification
