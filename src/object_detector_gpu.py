@@ -80,75 +80,103 @@ class GPUObjectDetector:
             print("[INFO] CPU mode ENABLED")
     
     def _load_templates(self):
-        """Load and process template images for ball and book."""
-        template_files = {
-            'ball': 'ball.jpg',
-            'book': 'book.jpg'
-        }
+        """Load and process multiple template images for ball and book."""
+        # Find all template files matching pattern: ball_*.jpg, book_*.jpg
+        if not os.path.exists(self.template_dir):
+            print(f"[ERROR] Template directory not found: {self.template_dir}")
+            return
         
-        for obj_name, filename in template_files.items():
-            filepath = os.path.join(self.template_dir, filename)
-            
-            if not os.path.exists(filepath):
-                print(f"[WARNING] Template not found: {filepath}")
-                print(f"[INFO] Skipping {obj_name} detection")
+        all_files = os.listdir(self.template_dir)
+        
+        # Group templates by object type
+        template_groups = {'ball': [], 'book': []}
+        
+        for filename in all_files:
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                if filename.startswith('ball_') or filename == 'ball.jpg':
+                    template_groups['ball'].append(filename)
+                elif filename.startswith('book_') or filename == 'book.jpg':
+                    template_groups['book'].append(filename)
+        
+        # Sort for consistent ordering
+        for obj_name in template_groups:
+            template_groups[obj_name].sort()
+        
+        # Load each template
+        for obj_name, filenames in template_groups.items():
+            if len(filenames) == 0:
+                print(f"[WARNING] No templates found for {obj_name}")
                 continue
             
-            # Load template image
-            template_img = cv2.imread(filepath)
-            if template_img is None:
-                print(f"[ERROR] Failed to load template: {filepath}")
-                continue
+            # Store all template variations for this object
+            self.templates[obj_name] = []
             
-            # Convert to grayscale
-            gray_template = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY)
-            h, w = gray_template.shape
-            
-            # Extract features
-            if self.use_gpu:
-                # GPU processing
-                gpu_template = cv2.cuda_GpuMat()
-                gpu_template.upload(gray_template)
+            for filename in filenames:
+                filepath = os.path.join(self.template_dir, filename)
                 
-                gpu_keypoints, gpu_descriptors = self.feature_detector.detectAndComputeAsync(
-                    gpu_template, None
-                )
-                
-                # Download keypoints (descriptors stay on GPU)
-                keypoints = self.feature_detector.convert(gpu_keypoints)
-                
-                if gpu_descriptors.empty():
-                    print(f"[WARNING] No features detected in {obj_name} template")
+                # Load template image
+                template_img = cv2.imread(filepath)
+                if template_img is None:
+                    print(f"[ERROR] Failed to load template: {filepath}")
                     continue
                 
-                self.templates[obj_name] = {
-                    'image': template_img,
-                    'gray': gray_template,
-                    'keypoints': keypoints,
-                    'descriptors': gpu_descriptors,  # Keep on GPU
-                    'corners': np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2),
-                    'size': (w, h)
-                }
+                # Convert to grayscale
+                gray_template = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY)
+                h, w = gray_template.shape
+                
+                # Extract features
+                if self.use_gpu:
+                    # GPU processing
+                    gpu_template = cv2.cuda_GpuMat()
+                    gpu_template.upload(gray_template)
+                    
+                    gpu_keypoints, gpu_descriptors = self.feature_detector.detectAndComputeAsync(
+                        gpu_template, None
+                    )
+                    
+                    # Download keypoints (descriptors stay on GPU)
+                    keypoints = self.feature_detector.convert(gpu_keypoints)
+                    
+                    if gpu_descriptors.empty():
+                        print(f"[WARNING] No features detected in {filename}")
+                        continue
+                    
+                    template_data = {
+                        'filename': filename,
+                        'image': template_img,
+                        'gray': gray_template,
+                        'keypoints': keypoints,
+                        'descriptors': gpu_descriptors,  # Keep on GPU
+                        'corners': np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2),
+                        'size': (w, h)
+                    }
+                else:
+                    # CPU processing
+                    keypoints, descriptors = self.feature_detector.detectAndCompute(
+                        gray_template, None
+                    )
+                    
+                    if descriptors is None or len(keypoints) == 0:
+                        print(f"[WARNING] No features detected in {filename}")
+                        continue
+                    
+                    template_data = {
+                        'filename': filename,
+                        'image': template_img,
+                        'gray': gray_template,
+                        'keypoints': keypoints,
+                        'descriptors': descriptors,
+                        'corners': np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2),
+                        'size': (w, h)
+                    }
+                
+                self.templates[obj_name].append(template_data)
+                print(f"[INFO] Loaded template '{filename}': {len(keypoints)} keypoints, size {w}x{h}")
+            
+            if len(self.templates[obj_name]) == 0:
+                del self.templates[obj_name]
             else:
-                # CPU processing
-                keypoints, descriptors = self.feature_detector.detectAndCompute(
-                    gray_template, None
-                )
-                
-                if descriptors is None or len(keypoints) == 0:
-                    print(f"[WARNING] No features detected in {obj_name} template")
-                    continue
-                
-                self.templates[obj_name] = {
-                    'image': template_img,
-                    'gray': gray_template,
-                    'keypoints': keypoints,
-                    'descriptors': descriptors,
-                    'corners': np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2),
-                    'size': (w, h)
-                }
-            
-            print(f"[INFO] Loaded template '{obj_name}': {len(keypoints)} keypoints, size {w}x{h}")
+                print(f"[INFO] Total {obj_name} templates: {len(self.templates[obj_name])}")
     
     def detect(self, image: np.ndarray) -> List[Dict]:
         """
@@ -201,92 +229,104 @@ class GPUObjectDetector:
         
         feature_time = time.time() - start_time
         
-        # Match against each template
+        # Match against each template (now supporting multiple templates per object)
         detections = []
         
-        for obj_name, template in self.templates.items():
-            match_start = time.time()
+        for obj_name, template_list in self.templates.items():
+            best_detection = None
+            best_confidence = 0.0
             
-            # Perform matching
-            if self.use_gpu:
-                # GPU matching (k=2 for ratio test)
-                matches = self.matcher.knnMatch(
-                    template['descriptors'],
-                    gpu_query_desc,
-                    k=2
-                )
-            else:
-                # CPU matching
-                matches = self.matcher.knnMatch(
-                    template['descriptors'],
-                    query_descriptors,
-                    k=2
-                )
-            
-            # Apply Lowe's ratio test
-            good_matches = []
-            for match_pair in matches:
-                if len(match_pair) == 2:
-                    m, n = match_pair
-                    if m.distance < self.ratio_threshold * n.distance:
-                        good_matches.append(m)
-            
-            match_time = time.time() - match_start
-            
-            # Check if enough matches for homography
-            if len(good_matches) >= self.min_matches:
-                # Extract matched keypoint coordinates
-                src_pts = np.float32([
-                    template['keypoints'][m.queryIdx].pt for m in good_matches
-                ]).reshape(-1, 1, 2)
+            # Try each template variation for this object
+            for template in template_list:
+                match_start = time.time()
                 
-                dst_pts = np.float32([
-                    query_keypoints[m.trainIdx].pt for m in good_matches
-                ]).reshape(-1, 1, 2)
-                
-                # Compute homography with RANSAC
-                homography_start = time.time()
-                M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-                homography_time = time.time() - homography_start
-                
-                if M is not None:
-                    # Transform template corners to query image
-                    transformed_corners = cv2.perspectiveTransform(
-                        template['corners'], M
+                # Perform matching
+                if self.use_gpu:
+                    # GPU matching (k=2 for ratio test)
+                    matches = self.matcher.knnMatch(
+                        template['descriptors'],
+                        gpu_query_desc,
+                        k=2
                     )
+                else:
+                    # CPU matching
+                    matches = self.matcher.knnMatch(
+                        template['descriptors'],
+                        query_descriptors,
+                        k=2
+                    )
+                
+                # Apply Lowe's ratio test
+                good_matches = []
+                for match_pair in matches:
+                    if len(match_pair) == 2:
+                        m, n = match_pair
+                        if m.distance < self.ratio_threshold * n.distance:
+                            good_matches.append(m)
+                
+                match_time = time.time() - match_start
+                
+                # Check if enough matches for homography
+                if len(good_matches) >= self.min_matches:
+                    # Extract matched keypoint coordinates
+                    src_pts = np.float32([
+                        template['keypoints'][m.queryIdx].pt for m in good_matches
+                    ]).reshape(-1, 1, 2)
                     
-                    # Calculate confidence (inlier ratio)
-                    inliers = np.sum(mask)
-                    confidence = inliers / len(good_matches)
+                    dst_pts = np.float32([
+                        query_keypoints[m.trainIdx].pt for m in good_matches
+                    ]).reshape(-1, 1, 2)
                     
-                    # Calculate center point
-                    corners_flat = transformed_corners.reshape(-1, 2)
-                    center = np.mean(corners_flat, axis=0)
+                    # Compute homography with RANSAC
+                    homography_start = time.time()
+                    M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+                    homography_time = time.time() - homography_start
                     
-                    # Calculate area (for filtering very small/large detections)
-                    area = cv2.contourArea(corners_flat)
-                    image_area = image.shape[0] * image.shape[1]
-                    area_ratio = area / image_area
-                    
-                    # Filter unrealistic detections
-                    if 0.01 < area_ratio < 0.9 and confidence > 0.3:
-                        detections.append({
-                            'object': obj_name,
-                            'bbox': transformed_corners,
-                            'confidence': confidence,
-                            'matches': len(good_matches),
-                            'inliers': inliers,
-                            'center': tuple(center.astype(int)),
-                            'area_ratio': area_ratio,
-                            'timings': {
-                                'feature_extraction': feature_time,
-                                'matching': match_time,
-                                'homography': homography_time
-                            }
-                        })
+                    if M is not None:
+                        # Transform template corners to query image
+                        transformed_corners = cv2.perspectiveTransform(
+                            template['corners'], M
+                        )
                         
-                        print(f"[DETECT] {obj_name}: {len(good_matches)} matches, "
-                              f"{inliers} inliers, confidence {confidence:.2f}")
+                        # Calculate confidence (inlier ratio)
+                        inliers = np.sum(mask)
+                        confidence = inliers / len(good_matches)
+                        
+                        # Calculate center point
+                        corners_flat = transformed_corners.reshape(-1, 2)
+                        center = np.mean(corners_flat, axis=0)
+                        
+                        # Calculate area (for filtering very small/large detections)
+                        area = cv2.contourArea(corners_flat)
+                        image_area = image.shape[0] * image.shape[1]
+                        area_ratio = area / image_area
+                        
+                        # Filter unrealistic detections and keep best match for this object
+                        if 0.01 < area_ratio < 0.9 and confidence > 0.3:
+                            if confidence > best_confidence:
+                                best_confidence = confidence
+                                best_detection = {
+                                    'object': obj_name,
+                                    'template': template['filename'],
+                                    'bbox': transformed_corners,
+                                    'confidence': confidence,
+                                    'matches': len(good_matches),
+                                    'inliers': inliers,
+                                    'center': tuple(center.astype(int)),
+                                    'area_ratio': area_ratio,
+                                    'timings': {
+                                        'feature_extraction': feature_time,
+                                        'matching': match_time,
+                                        'homography': homography_time
+                                    }
+                                }
+            
+            # Add best detection for this object
+            if best_detection is not None:
+                detections.append(best_detection)
+                print(f"[DETECT] {best_detection['object']} (using {best_detection['template']}): "
+                      f"{best_detection['matches']} matches, {best_detection['inliers']} inliers, "
+                      f"confidence {best_detection['confidence']:.2f}")
         
         return detections
     

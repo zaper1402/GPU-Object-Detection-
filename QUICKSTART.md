@@ -87,7 +87,7 @@ python object_detector_gpu.py --input ../test_images/sample_test.jpg --templates
 ```bash
 # In SLURM job or interactive session:
 python object_detector_gpu.py \
-    --input ../test_images/sample_test.jpg \
+    --input ../test_images/test_both_separated.jpg \
     --templates ../templates \
     --output ../results
 ```
