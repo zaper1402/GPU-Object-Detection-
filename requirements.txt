@@ -1,0 +1,9 @@
+numpy
+matplotlib
+cupy
+pycuda
+jupyter
+scipy
+pandas
+opencv-contrib-python
+
