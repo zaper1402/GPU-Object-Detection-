@@ -178,8 +178,33 @@ sacct -u $USER --starttime=2026-01-01
 
 # Check GPU allocation
 saldo -p project_XXXXX
-```
 
+# Watch job output
+tail -f logs/job_<JOBID>.out
+```
+## Sinteractive Session Commands
+
+### Start interactive GPU session (15 min max on gputest)
+sinteractive --account=project_2016196 --partition=gputest --gres=gpu:a100:1 --time=00:15:00 --mem=16G
+
+# Once allocated to compute node, load modules and activate environment
+module load gcc cuda python-data
+source .venv/bin/activate
+
+# Navigate to source directory
+cd src
+
+# Run the GPU detector on a single image
+python object_detector_gpu.py \
+    --input ../test_images/sample_test.jpg \
+    --templates ../templates \
+    --output ../results
+
+# Or batch process all test images
+python object_detector_gpu.py \
+    --input ../test_images \
+    --templates ../templates \
+    --output ../results
 ---
 
 ## Troubleshooting

@@ -41,6 +41,17 @@ class GPUObjectDetector:
         # Load templates
         self._load_templates()
     
+    def __del__(self):
+        """Cleanup GPU resources."""
+        if self.use_gpu:
+            try:
+                for obj_name in self.templates:
+                    for template in self.templates[obj_name]:
+                        if 'descriptors' in template and hasattr(template['descriptors'], 'release'):
+                            template['descriptors'].release()
+            except:
+                pass  # Ignore cleanup errors during shutdown
+    
     def _init_gpu(self):
         """Initialize CUDA GPU and create feature detector + matcher."""
         cuda_device_count = cv2.cuda.getCudaEnabledDeviceCount()
@@ -230,12 +241,9 @@ class GPUObjectDetector:
         feature_time = time.time() - start_time
         
         # Match against each template (now supporting multiple templates per object)
-        detections = []
+        all_candidate_detections = []  # Store all candidates for NMS
         
         for obj_name, template_list in self.templates.items():
-            best_detection = None
-            best_confidence = 0.0
-            
             # Try each template variation for this object
             for template in template_list:
                 match_start = time.time()
@@ -288,47 +296,130 @@ class GPUObjectDetector:
                             template['corners'], M
                         )
                         
+                        # Validate homography quality
+                        corners_flat = transformed_corners.reshape(-1, 2)
+                        area = cv2.contourArea(corners_flat)
+                        
+                        # Skip degenerate transformations
+                        if area < 100:  # Too small, likely collapsed
+                            continue
+                        
                         # Calculate confidence (inlier ratio)
                         inliers = np.sum(mask)
                         confidence = inliers / len(good_matches)
                         
                         # Calculate center point
-                        corners_flat = transformed_corners.reshape(-1, 2)
                         center = np.mean(corners_flat, axis=0)
                         
-                        # Calculate area (for filtering very small/large detections)
-                        area = cv2.contourArea(corners_flat)
+                        # Calculate area ratio (for filtering very small/large detections)
                         image_area = image.shape[0] * image.shape[1]
                         area_ratio = area / image_area
                         
-                        # Filter unrealistic detections and keep best match for this object
-                        if 0.01 < area_ratio < 0.9 and confidence > 0.3:
-                            if confidence > best_confidence:
-                                best_confidence = confidence
-                                best_detection = {
-                                    'object': obj_name,
-                                    'template': template['filename'],
-                                    'bbox': transformed_corners,
-                                    'confidence': confidence,
-                                    'matches': len(good_matches),
-                                    'inliers': inliers,
-                                    'center': tuple(center.astype(int)),
-                                    'area_ratio': area_ratio,
-                                    'timings': {
-                                        'feature_extraction': feature_time,
-                                        'matching': match_time,
-                                        'homography': homography_time
-                                    }
+                        # Filter unrealistic detections (relaxed upper bound to 0.95)
+                        if 0.005 < area_ratio < 0.95 and confidence > 0.25:
+                            detection = {
+                                'object': obj_name,
+                                'template': template['filename'],
+                                'bbox': transformed_corners,
+                                'confidence': confidence,
+                                'matches': len(good_matches),
+                                'inliers': inliers,
+                                'center': tuple(center.astype(int)),
+                                'area_ratio': area_ratio,
+                                'area': area,
+                                'timings': {
+                                    'feature_extraction': feature_time,
+                                    'matching': match_time,
+                                    'homography': homography_time
                                 }
-            
-            # Add best detection for this object
-            if best_detection is not None:
-                detections.append(best_detection)
-                print(f"[DETECT] {best_detection['object']} (using {best_detection['template']}): "
-                      f"{best_detection['matches']} matches, {best_detection['inliers']} inliers, "
-                      f"confidence {best_detection['confidence']:.2f}")
+                            }
+                            all_candidate_detections.append(detection)
+        
+        # Apply Non-Maximum Suppression to remove overlapping detections
+        detections = self._apply_nms(all_candidate_detections, iou_threshold=0.5)
+        
+        # Print final detections
+        for detection in detections:
+            print(f"[DETECT] {detection['object']} (using {detection['template']}): "
+                  f"{detection['matches']} matches, {detection['inliers']} inliers, "
+                  f"confidence {detection['confidence']:.2f}")
         
         return detections
+    
+    def _calculate_iou(self, bbox1: np.ndarray, bbox2: np.ndarray) -> float:
+        """
+        Calculate Intersection over Union (IoU) between two bounding boxes.
+        
+        Args:
+            bbox1, bbox2: Bounding box corners as numpy arrays [4,1,2]
+        
+        Returns:
+            IoU score (0-1)
+        """
+        # Convert to polygon format
+        poly1 = bbox1.reshape(-1, 2).astype(np.float32)
+        poly2 = bbox2.reshape(-1, 2).astype(np.float32)
+        
+        # Calculate areas
+        area1 = cv2.contourArea(poly1)
+        area2 = cv2.contourArea(poly2)
+        
+        if area1 <= 0 or area2 <= 0:
+            return 0.0
+        
+        # Find intersection (approximate using bounding rectangles for efficiency)
+        rect1 = cv2.boundingRect(poly1)
+        rect2 = cv2.boundingRect(poly2)
+        
+        # Calculate intersection rectangle
+        x1 = max(rect1[0], rect2[0])
+        y1 = max(rect1[1], rect2[1])
+        x2 = min(rect1[0] + rect1[2], rect2[0] + rect2[2])
+        y2 = min(rect1[1] + rect1[3], rect2[1] + rect2[3])
+        
+        if x2 <= x1 or y2 <= y1:
+            return 0.0
+        
+        intersection = (x2 - x1) * (y2 - y1)
+        union = area1 + area2 - intersection
+        
+        return intersection / union if union > 0 else 0.0
+    
+    def _apply_nms(self, detections: List[Dict], iou_threshold: float = 0.5) -> List[Dict]:
+        """
+        Apply Non-Maximum Suppression to filter overlapping detections.
+        
+        Args:
+            detections: List of detection dictionaries
+            iou_threshold: IoU threshold for suppression (0.5 recommended)
+        
+        Returns:
+            Filtered list of detections
+        """
+        if len(detections) == 0:
+            return []
+        
+        # Sort by confidence (descending)
+        detections_sorted = sorted(detections, key=lambda x: x['confidence'], reverse=True)
+        
+        keep = []
+        while len(detections_sorted) > 0:
+            # Take highest confidence detection
+            current = detections_sorted.pop(0)
+            keep.append(current)
+            
+            # Remove overlapping detections
+            filtered = []
+            for det in detections_sorted:
+                iou = self._calculate_iou(current['bbox'], det['bbox'])
+                
+                # Keep if IoU is below threshold OR different object type
+                if iou < iou_threshold or det['object'] != current['object']:
+                    filtered.append(det)
+            
+            detections_sorted = filtered
+        
+        return keep
     
     def visualize_detections(self, image: np.ndarray, detections: List[Dict]) -> np.ndarray:
         """
