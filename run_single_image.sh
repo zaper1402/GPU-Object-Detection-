@@ -86,26 +86,24 @@ srun --account=$ACCOUNT \
         echo '[SUCCESS] Modules loaded: gcc, cuda, python-data'
         echo ''
         
-        echo '[STEP 3/4] Checking Python OpenCV CUDA support...'
-        python3 -c \"import cv2; print('OpenCV:', cv2.__version__); print('CUDA devices:', cv2.cuda.getCudaEnabledDeviceCount())\" || echo '[WARNING] OpenCV check failed'
-        echo ''
+        echo '[STEP 3/4] Setting up Python environment...'
+        # Ignore user .local packages to avoid NumPy conflicts
+        export PYTHONNOUSERSITE=1
+        echo '[INFO] Disabled user site-packages to avoid version conflicts'
         
-        # Skip venv for now - use system Python with CUDA-enabled OpenCV
-        # echo '[STEP 3/4] Activating virtual environment...'
-        # source .venv/bin/activate
-        # if [ \$? -ne 0 ]; then
-        #     echo '[ERROR] Failed to activate virtual environment'
-        #     exit 1
-        # fi
-        # echo '[SUCCESS] Virtual environment activated'
-        # echo ''
+        # Check system OpenCV
+        python3 -c \"import cv2; print('[INFO] OpenCV:', cv2.__version__); print('[INFO] CUDA devices:', cv2.cuda.getCudaEnabledDeviceCount())\" || {
+            echo '[ERROR] System OpenCV not available or lacks CUDA support'
+            exit 1
+        }
+        echo ''
         
         echo '[STEP 4/4] Running GPU object detection...'
         echo 'Input: $INPUT_IMAGE'
         echo 'Templates: $TEMPLATE_DIR'
         echo 'Output: $OUTPUT_DIR'
         echo ''
-        python3 src/object_detector_gpu.py \\
+        PYTHONNOUSERSITE=1 python3 src/object_detector_gpu.py \\
             --input $INPUT_IMAGE \\
             --templates $TEMPLATE_DIR \\
             --output $OUTPUT_DIR
