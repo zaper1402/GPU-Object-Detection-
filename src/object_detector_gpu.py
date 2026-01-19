@@ -274,6 +274,11 @@ class GPUObjectDetector:
                 
                 match_time = time.time() - match_start
                 
+                # Debug output
+                print(f"  [DEBUG] Template: {template['filename']}, "
+                      f"Total matches: {len(matches)}, Good matches: {len(good_matches)}, "
+                      f"Min required: {self.min_matches}")
+                
                 # Check if enough matches for homography
                 if len(good_matches) >= self.min_matches:
                     # Extract matched keypoint coordinates

@@ -78,7 +78,7 @@ srun --account=$ACCOUNT \
         echo ''
         
         echo '[STEP 2/4] Loading required modules...'
-        module load gcc cuda python-data
+        module load python-data gcc cuda cmake
         if [ \$? -ne 0 ]; then
             echo '[ERROR] Failed to load modules'
             exit 1
@@ -86,21 +86,26 @@ srun --account=$ACCOUNT \
         echo '[SUCCESS] Modules loaded: gcc, cuda, python-data'
         echo ''
         
-        echo '[STEP 3/4] Activating virtual environment...'
-        source .venv/bin/activate
-        if [ \$? -ne 0 ]; then
-            echo '[ERROR] Failed to activate virtual environment'
-            exit 1
-        fi
-        echo '[SUCCESS] Virtual environment activated'
+        echo '[STEP 3/4] Checking Python OpenCV CUDA support...'
+        python3 -c \"import cv2; print('OpenCV:', cv2.__version__); print('CUDA devices:', cv2.cuda.getCudaEnabledDeviceCount())\" || echo '[WARNING] OpenCV check failed'
         echo ''
+        
+        # Skip venv for now - use system Python with CUDA-enabled OpenCV
+        # echo '[STEP 3/4] Activating virtual environment...'
+        # source .venv/bin/activate
+        # if [ \$? -ne 0 ]; then
+        #     echo '[ERROR] Failed to activate virtual environment'
+        #     exit 1
+        # fi
+        # echo '[SUCCESS] Virtual environment activated'
+        # echo ''
         
         echo '[STEP 4/4] Running GPU object detection...'
         echo 'Input: $INPUT_IMAGE'
         echo 'Templates: $TEMPLATE_DIR'
         echo 'Output: $OUTPUT_DIR'
         echo ''
-        python src/object_detector_gpu.py \\
+        python3 src/object_detector_gpu.py \\
             --input $INPUT_IMAGE \\
             --templates $TEMPLATE_DIR \\
             --output $OUTPUT_DIR
