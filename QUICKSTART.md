@@ -107,6 +107,15 @@ python benchmark.py \
     --templates ../templates \
     --output ../results/benchmark
 ```
+### Srun 
+# Quick GPU check without batch script
+srun --account=project_2016196 --partition=gputest --gres=gpu:a100:1 --time=00:01:00 nvidia-smi
+
+# Test CUDA compilation
+srun --account=project_2016196 --partition=gputest --gres=gpu:a100:1 nvcc --version
+
+# Run device query
+srun --account=project_2016196 --partition=gputest --gres=gpu:a100:1 ./deviceQuery
 
 ### Test CUDA Kernels
 ```bash
