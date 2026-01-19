@@ -98,15 +98,16 @@ srun --account=$ACCOUNT \
         }
         echo ''
         
-        echo '[STEP 4/4] Running GPU object detection...'
+        echo '[STEP 4/4] Running GPU object detection (CuPy accelerated)...'
         echo 'Input: $INPUT_IMAGE'
         echo 'Templates: $TEMPLATE_DIR'
         echo 'Output: $OUTPUT_DIR'
         echo ''
-        PYTHONNOUSERSITE=1 python3 src/object_detector_gpu.py \\
-            --input $INPUT_IMAGE \\
-            --templates $TEMPLATE_DIR \\
-            --output $OUTPUT_DIR
+        PYTHONNOUSERSITE=1 python3 src/object_detector_cupy.py \
+            --input $INPUT_IMAGE \
+            --templates $TEMPLATE_DIR \
+            --output $OUTPUT_DIR \
+            --debug
         
         EXIT_CODE=\$?
         echo ''
