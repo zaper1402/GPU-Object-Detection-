@@ -1,4 +1,5 @@
 import cv2
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -76,6 +77,8 @@ def extract_and_match(query_path, target_path, use_sift=True):
         print("Object not localized.")
 
 if __name__ == "__main__":
-    query_img_path = r"D:\object.png"
-    target_img_path = r"D:\scene.jpg"
-    extract_and_match(query_img_path, target_img_path, use_sift=True)
+    parser = argparse.ArgumentParser(description="Detect new object by aligning scenery images.")
+    parser.add_argument("scenery_path", help="Path to the scenery-only image.")
+    parser.add_argument("scene_with_object_path", help="Path to the scenery image that contains the object.")
+    args = parser.parse_args()
+    extract_and_match(args.scene_with_object_path, args.scenery_path, use_sift=True)

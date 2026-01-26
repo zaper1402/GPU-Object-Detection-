@@ -45,7 +45,7 @@ Object-Detection-with-SIFT-ORB/
 2. **Install the Required Dependencies**
    It is recommended to use a virtual environment.
    ```bash
-   pip install -r requirements.txt
+   .v 
    ```
 
 ## How to Use

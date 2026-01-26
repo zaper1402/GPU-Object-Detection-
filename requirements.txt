@@ -1,6 +1,4 @@
 # requirements.txt
-"""
 opencv-contrib-python
 numpy
 matplotlib
-"""
