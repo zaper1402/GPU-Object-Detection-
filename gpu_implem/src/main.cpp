@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <memory>
+#include <fstream>
 
 #include <png.h>
 
@@ -318,7 +319,7 @@ int main(int argc, char **argv)
     json j;
 
     // Parameters
-    std::string output_folder = "./output/";
+    std::string output_folder = "../output/";
     int gaussian_radius = 2;
     float gaussian_sigma = 1.0;
     int opening_radius = 10;
@@ -405,6 +406,39 @@ int main(int argc, char **argv)
 
         prefix = "connected_components_";
         save_images(output_folder, connected_components_images, width, height, 1, prefix);
+
+        // Save JSON bounding boxes for each test image
+        for (size_t i = 1; i < images_paths.size(); i++)
+        {
+            // Extract image name without extension
+            std::filesystem::path img_path(images_paths[i]);
+            std::string img_name = img_path.stem().string();
+            
+            // Create folder for this image: output_folder/test_imagename/
+            std::filesystem::path json_folder(output_folder + "/" + img_name);
+            std::filesystem::create_directories(json_folder);
+            
+            // Create output.json in that folder
+            std::string json_filename = json_folder.string() + "/output.json";
+            
+            // Create JSON object for this image only
+            json img_json;
+            img_json["image"] = images_paths[i];
+            img_json["bounding_boxes"] = j[images_paths[i]];
+            
+            // Write to file
+            std::ofstream json_file(json_filename);
+            if (json_file.is_open())
+            {
+                json_file << img_json.dump(4);
+                json_file.close();
+                spdlog::info("Saved bounding boxes to {}", json_filename);
+            }
+            else
+            {
+                spdlog::error("Failed to save JSON to {}", json_filename);
+            }
+        }
 
         //spdlog::info("Output saved in {}.", output_folder);
     }

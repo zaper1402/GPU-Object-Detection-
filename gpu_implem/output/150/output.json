@@ -1,0 +1,17 @@
+{
+    "bounding_boxes": [
+        [
+            1,
+            1,
+            359,
+            639
+        ],
+        [
+            75,
+            249,
+            45,
+            344
+        ]
+    ],
+    "image": "../../samples/SCIA_Premium/150.jpg"
+}
